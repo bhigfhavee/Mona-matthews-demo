@@ -1,486 +1,524 @@
+
 (() => {
-  "use strict";
+    "use strict";
 
-  const CART_KEY = "monaMatthewsCart";
-  const WHATSAPP_NUMBER = "2348182999921";
+    const CART_KEY = "monaMatthewsCart";
+    const MAX_QUANTITY = 99;
 
-  // GET CART
-  function getCart() {
-    try {
-      const cart = JSON.parse(
-        localStorage.getItem(CART_KEY) || "[]"
-      );
+    // -------------------------
+    // GENERAL UTILITIES
+    // -------------------------
 
-      return Array.isArray(cart) ? cart : [];
+    function safeImageURL(value) {
+        if (typeof value !== "string" || !value.trim()) {
+            return "";
+        }
 
-    } catch (error) {
-      console.error(error);
-      return [];
+        try {
+            const url = new URL(value, window.location.href);
+
+            if (url.protocol === "http:" || url.protocol === "https:") {
+                return url.href;
+            }
+        } catch (error) {
+            console.warn("Invalid image URL:", error);
+        }
+
+        return "";
     }
-  }
 
-  // SAVE CART
-  function saveCart(cart) {
-    localStorage.setItem(
-      CART_KEY,
-      JSON.stringify(cart)
-    );
-  }
+    function escapeHTML(value) {
+        return String(value ?? "").replace(/[&<>"']/g, character => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        })[character]);
+    }
 
-  // FORMAT PRICE
-  function money(value) {
-    return "₦" + Number(value || 0).toLocaleString("en-NG");
-  }
+    function money(value) {
+        return "₦" + Number(value || 0).toLocaleString("en-NG");
+    }
 
-  // UPDATE BAG COUNT
-  function updateCartCount() {
-    const count = getCart().reduce(
-      (sum, item) => sum + Number(item.quantity || 0),
-      0
-    );
+    // -------------------------
+    // CART VALIDATION
+    // -------------------------
 
-    document.querySelectorAll(".cart-count").forEach(el => {
-      el.textContent = count;
-    });
-  }
+    function isValidCartItem(item) {
+        return Boolean(
+            item &&
+            typeof item.id === "string" &&
+            item.id.trim() &&
+            typeof item.name === "string" &&
+            item.name.trim() &&
+            Number.isFinite(Number(item.price)) &&
+            Number(item.price) > 0 &&
+            Number.isInteger(Number(item.quantity)) &&
+            Number(item.quantity) > 0 &&
+            Number(item.quantity) <= MAX_QUANTITY
+        );
+    }
 
-  // SAFE HTML
-  function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, char => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[char]);
-  }
+    function getCart() {
+        try {
+            const storedCart = localStorage.getItem(CART_KEY);
 
-  document.addEventListener("DOMContentLoaded", () => {
+            if (!storedCart) {
+                return [];
+            }
 
-    updateCartCount();
+            const parsedCart = JSON.parse(storedCart);
 
-    // =========================
-    // SHOP FILTERS
-    // =========================
+            if (!Array.isArray(parsedCart)) {
+                return [];
+            }
 
-    const filterButtons =
-      document.querySelectorAll(".filter-btn");
+            return parsedCart
+                .filter(isValidCartItem)
+                .map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    image: safeImageURL(item.image),
+                    category: String(item.category || ""),
+                    price: Number(item.price),
+                    quantity: Number(item.quantity)
+                }));
+        } catch (error) {
+            console.error("Unable to read shopping bag:", error);
+            return [];
+        }
+    }
 
-    const productCards =
-      document.querySelectorAll(".product-card");
+    function saveCart(cart) {
+        try {
+            localStorage.setItem(CART_KEY, JSON.stringify(cart));
+            return true;
+        } catch (error) {
+            console.error("Unable to save shopping bag:", error);
+            return false;
+        }
+    }
 
-    filterButtons.forEach(button => {
+    function updateCartCount() {
+        const count = getCart().reduce(
+            (total, item) => total + item.quantity,
+            0
+        );
 
-      button.addEventListener("click", () => {
+        document.querySelectorAll(".cart-count").forEach(element => {
+            element.textContent = count;
+        });
+    }
 
-        const category =
-          (button.dataset.filter || "all").toLowerCase();
+    function showCartMessage(message) {
+        let status = document.getElementById("cart-status");
 
-        filterButtons.forEach(btn => {
-          btn.classList.toggle("active", btn === button);
+        if (!status) {
+            status = document.createElement("p");
+            status.id = "cart-status";
+            status.setAttribute("role", "status");
+            status.setAttribute("aria-live", "polite");
+
+            const summary = document.querySelector(".cart-summary");
+
+            if (summary) {
+                summary.appendChild(status);
+            }
+        }
+
+        if (status) {
+            status.textContent = message;
+        }
+    }
+
+    // -------------------------
+    // SHOP CATEGORY FILTERS
+    // -------------------------
+
+    function initialiseFilters() {
+        const filterButtons = document.querySelectorAll(".filter-btn");
+        const productCards = document.querySelectorAll(".product-card");
+
+        if (!filterButtons.length || !productCards.length) {
+            return;
+        }
+
+        function applyFilter(category) {
+            const allowedCategories = ["all", "women", "men", "bags"];
+
+            const selectedCategory = allowedCategories.includes(category)
+                ? category
+                : "all";
+
+            filterButtons.forEach(button => {
+                const isActive =
+                    button.dataset.filter === selectedCategory;
+
+                button.classList.toggle("active", isActive);
+                button.setAttribute("aria-pressed", String(isActive));
+            });
+
+            productCards.forEach(card => {
+                const productCategory =
+                    (card.dataset.category || "").toLowerCase();
+
+                const matches =
+                    selectedCategory === "all" ||
+                    productCategory === selectedCategory;
+
+                card.style.display = matches ? "" : "none";
+            });
+        }
+
+        filterButtons.forEach(button => {
+            button.addEventListener("click", () => {
+                applyFilter(
+                    (button.dataset.filter || "all").toLowerCase()
+                );
+            });
         });
 
-        productCards.forEach(card => {
+        const requestedCategory = new URLSearchParams(
+            window.location.search
+        ).get("category");
 
-          const productCategory =
-            (card.dataset.category || "").toLowerCase();
+        applyFilter((requestedCategory || "all").toLowerCase());
+    }
 
-          card.style.display =
-            category === "all" ||
-            productCategory === category
-              ? ""
-              : "none";
+    // -------------------------
+    // ADD PRODUCTS TO BAG
+    // -------------------------
 
+    function initialiseAddToBag() {
+        document.querySelectorAll(".add-cart").forEach(button => {
+            button.addEventListener("click", () => {
+                const productCard = button.closest(".product-card");
+
+                if (!productCard) {
+                    return;
+                }
+
+                const productId = button.dataset.productId;
+                const productName =
+                    productCard.querySelector("h3")?.textContent.trim();
+
+                const productImage = safeImageURL(
+                    productCard.querySelector("img")?.src || ""
+                );
+
+                const productCategory =
+                    (productCard.dataset.category || "").toLowerCase();
+
+                const productPrice = Number(button.dataset.price);
+
+                if (
+                    !productId ||
+                    !productName ||
+                    !Number.isFinite(productPrice) ||
+                    productPrice <= 0
+                ) {
+                    window.alert(
+                        "This demonstration product has incomplete information."
+                    );
+                    return;
+                }
+
+                const cart = getCart();
+
+                const existingItem = cart.find(
+                    item => item.id === productId
+                );
+
+                if (existingItem) {
+                    if (existingItem.quantity >= MAX_QUANTITY) {
+                        window.alert(
+                            "The maximum demonstration quantity has been reached."
+                        );
+                        return;
+                    }
+
+                    existingItem.quantity += 1;
+                } else {
+                    cart.push({
+                        id: productId,
+                        name: productName,
+                        image: productImage,
+                        category: productCategory,
+                        price: productPrice,
+                        quantity: 1
+                    });
+                }
+
+                if (!saveCart(cart)) {
+                    window.alert(
+                        "Your browser could not save the shopping bag. Check your browser storage settings and try again."
+                    );
+                    return;
+                }
+
+                updateCartCount();
+
+                const originalText = button.textContent;
+
+                button.textContent = "ADDED";
+                button.disabled = true;
+
+                window.setTimeout(() => {
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }, 900);
+            });
         });
+    }
 
-      });
+    // -------------------------
+    // SHOPPING BAG PAGE
+    // -------------------------
 
-    });
+    function initialiseCart() {
+        const cartContainer = document.getElementById("cart-items");
 
-
-    // =========================
-    // ADD TO BAG
-    // =========================
-
-    document.querySelectorAll(".add-cart").forEach(button => {
-
-      button.addEventListener("click", () => {
-
-        const card = button.closest(".product-card");
-
-        if (!card) return;
-
-        const name =
-          card.querySelector("h3")?.textContent.trim()
-          || "Mona Matthews item";
-
-        const image =
-          card.querySelector("img")?.src || "";
-
-        const category =
-          card.dataset.category || "";
-
-        const price = Number(
-          String(button.dataset.price || "")
-            .replace(/[^\d.]/g, "")
-        );
-
-        if (!Number.isFinite(price) || price <= 0) {
-          alert("Product price is missing.");
-          return;
+        if (!cartContainer) {
+            return;
         }
 
-        const cart = getCart();
-
-        const existing = cart.find(
-          item => item.name === name
-        );
-
-        if (existing) {
-
-          existing.quantity =
-            Number(existing.quantity || 0) + 1;
-
-        } else {
-
-          cart.push({
-            id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-            name: name,
-            image: image,
-            category: category,
-            price: price,
-            quantity: 1
-          });
-
-        }
-
-        saveCart(cart);
-
-        updateCartCount();
-
-        const oldText = button.textContent;
-
-        button.textContent = "ADDED ✓";
-
-        button.disabled = true;
-
-        setTimeout(() => {
-
-          button.textContent = oldText;
-
-          button.disabled = false;
-
-        }, 1000);
-
-      });
-
-    });
-
-
-    // =========================
-    // SHOPPING CART
-    // =========================
-
-    const cartContainer =
-      document.getElementById("cart-items");
-
-    if (cartContainer) {
-
-      const totalElement =
-        document.getElementById("cart-total");
-
-      const subtotalElement =
-        document.getElementById("cart-subtotal");
-
-
-      function renderCart() {
-
-        const cart = getCart();
-
-        const itemCount = cart.reduce(
-          (sum, item) =>
-            sum + Number(item.quantity || 0),
-          0
-        );
-
-        const subtotal = cart.reduce(
-          (sum, item) =>
-            sum +
-            Number(item.price || 0) *
-            Number(item.quantity || 0),
-          0
-        );
-
-        if (totalElement) {
-          totalElement.textContent =
-            `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
-        }
-
-        if (subtotalElement) {
-          subtotalElement.textContent = money(subtotal);
-        }
-
-        if (!cart.length) {
-
-          cartContainer.innerHTML = `
-            <div class="empty-cart">
-              <h2>Your bag is waiting.</h2>
-
-              <p>You haven't added any pieces yet.</p>
-
-              <a href="shop.html" class="primary-btn">
-                EXPLORE COLLECTION ↗
-              </a>
-            </div>
-          `;
-
-          updateCartCount();
-
-          return;
-        }
-
-
-        cartContainer.innerHTML = cart.map(item => `
-
-          <div class="cart-row"
-               data-id="${escapeHTML(item.id)}">
-
-            <img
-              src="${escapeHTML(item.image)}"
-              alt="${escapeHTML(item.name)}"
-              class="cart-thumb">
-
-            <div class="cart-product-details">
-
-              <h3>${escapeHTML(item.name)}</h3>
-
-              <p>${money(item.price)}</p>
-
-              <div class="quantity-controls">
-
-                <button
-                  type="button"
-                  class="decrease">
-                  −
-                </button>
-
-                <span>
-                  ${Number(item.quantity || 1)}
-                </span>
-
-                <button
-                  type="button"
-                  class="increase">
-                  +
-                </button>
-
-              </div>
-
-              <button
-                type="button"
-                class="remove-product">
-                REMOVE
-              </button>
-
-            </div>
-
-          </div>
-
-        `).join("");
-
-        updateCartCount();
-
-      }
-
-
-      // QUANTITY AND REMOVE BUTTONS
-
-      cartContainer.addEventListener("click", event => {
-
-        const row = event.target.closest(".cart-row");
-
-        if (!row) return;
-
-        const cart = getCart();
-
-        const item = cart.find(
-          product => String(product.id) === row.dataset.id
-        );
-
-        if (!item) return;
-
-        let updatedCart = cart;
-
-        if (event.target.closest(".increase")) {
-
-          item.quantity =
-            Number(item.quantity || 1) + 1;
-
-        } else if (event.target.closest(".decrease")) {
-
-          item.quantity =
-            Number(item.quantity || 1) - 1;
-
-          if (item.quantity <= 0) {
-
-            updatedCart = cart.filter(
-              product =>
-                String(product.id) !== row.dataset.id
+        const itemCountElement = document.getElementById("cart-total");
+        const subtotalElement = document.getElementById("cart-subtotal");
+        const checkoutButton = document.getElementById("checkout-btn");
+
+        function renderCart() {
+            const cart = getCart();
+
+            const itemCount = cart.reduce(
+                (total, item) => total + item.quantity,
+                0
             );
 
-          }
+            const subtotal = cart.reduce(
+                (total, item) => total + item.price * item.quantity,
+                0
+            );
 
-        } else if (event.target.closest(".remove-product")) {
+            if (itemCountElement) {
+                itemCountElement.textContent =
+                    `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+            }
 
-          updatedCart = cart.filter(
-            product =>
-              String(product.id) !== row.dataset.id
-          );
+            if (subtotalElement) {
+                subtotalElement.textContent = money(subtotal);
+            }
 
-        } else {
+            if (!cart.length) {
+                cartContainer.innerHTML = `
+                    <div class="empty-cart">
+                        <h2>Your bag is waiting.</h2>
+                        <p>You haven't added any pieces yet.</p>
 
-          return;
+                        <a href="./shop.html" class="primary-btn">
+                            EXPLORE COLLECTION
+                        </a>
+                    </div>
+                `;
 
+                if (checkoutButton) {
+                    checkoutButton.disabled = true;
+                }
+
+                updateCartCount();
+                return;
+            }
+
+            if (checkoutButton) {
+                checkoutButton.disabled = false;
+            }
+
+            cartContainer.innerHTML = cart.map(item => {
+                const imageMarkup = item.image
+                    ? `
+                        <img
+                            src="${escapeHTML(item.image)}"
+                            alt="${escapeHTML(item.name)}"
+                            class="cart-thumb"
+                            loading="lazy">
+                    `
+                    : "";
+
+                return `
+                    <div class="cart-row" data-id="${escapeHTML(item.id)}">
+
+                        ${imageMarkup}
+
+                        <div class="cart-product-details">
+
+                            <h3>${escapeHTML(item.name)}</h3>
+
+                            <p>${money(item.price)}</p>
+
+                            <div class="quantity-controls">
+
+                                <button
+                                    type="button"
+                                    class="decrease"
+                                    aria-label="Decrease quantity of ${escapeHTML(item.name)}">
+                                    −
+                                </button>
+
+                                <span>${item.quantity}</span>
+
+                                <button
+                                    type="button"
+                                    class="increase"
+                                    aria-label="Increase quantity of ${escapeHTML(item.name)}">
+                                    +
+                                </button>
+
+                            </div>
+
+                            <button
+                                type="button"
+                                class="remove-product">
+                                REMOVE
+                            </button>
+
+                        </div>
+
+                    </div>
+                `;
+            }).join("");
+
+            updateCartCount();
         }
 
-        saveCart(updatedCart);
+        cartContainer.addEventListener("click", event => {
+            const target = event.target;
 
-        renderCart();
+            if (!(target instanceof Element)) {
+                return;
+            }
 
-      });
+            const row = target.closest(".cart-row");
 
+            if (!row) {
+                return;
+            }
 
-      // =========================
-      // WHATSAPP CHECKOUT
-      // =========================
+            const productId = row.dataset.id;
+            const cart = getCart();
 
-      const checkoutButton =
-        document.getElementById("checkout-btn");
+            const item = cart.find(
+                product => product.id === productId
+            );
 
-      if (checkoutButton) {
+            if (!item) {
+                return;
+            }
 
-        checkoutButton.addEventListener("click", () => {
+            let updatedCart = cart;
 
-          const cart = getCart();
+            if (target.closest(".increase")) {
+                if (item.quantity >= MAX_QUANTITY) {
+                    showCartMessage(
+                        "The maximum demonstration quantity has been reached."
+                    );
+                    return;
+                }
 
-          if (!cart.length) {
+                item.quantity += 1;
 
-            alert("Your shopping bag is empty.");
+            } else if (target.closest(".decrease")) {
+                item.quantity -= 1;
 
-            return;
+                if (item.quantity <= 0) {
+                    updatedCart = cart.filter(
+                        product => product.id !== productId
+                    );
+                }
 
-          }
+            } else if (target.closest(".remove-product")) {
+                updatedCart = cart.filter(
+                    product => product.id !== productId
+                );
 
-          let total = 0;
+            } else {
+                return;
+            }
 
-          let message =
-            "MONA MATTHEWS - ORDER ENQUIRY\n\n" +
-            "Hello Mona Matthews,\n" +
-            "I would like to enquire about ordering:\n\n";
+            if (!saveCart(updatedCart)) {
+                showCartMessage(
+                    "Unable to update your bag. Check your browser storage settings."
+                );
+                return;
+            }
 
-          cart.forEach(item => {
-
-            const lineTotal =
-              Number(item.price) *
-              Number(item.quantity);
-
-            total += lineTotal;
-
-            message +=
-              `${item.name}\n` +
-              `Quantity: ${item.quantity}\n` +
-              `Unit price: ${money(item.price)}\n` +
-              `Subtotal: ${money(lineTotal)}\n\n`;
-
-          });
-
-          message +=
-            `TOTAL: ${money(total)}\n\n` +
-            "Please contact me to confirm availability " +
-            "and delivery. Thank you.";
-
-          const whatsappURL =
-            "https://wa.me/" +
-            WHATSAPP_NUMBER +
-            "?text=" +
-            encodeURIComponent(message);
-
-          window.open(
-            whatsappURL,
-            "_blank",
-            "noopener"
-          );
-
+            showCartMessage("");
+            renderCart();
         });
 
-      }
+        if (checkoutButton) {
+            checkoutButton.addEventListener("click", () => {
+                if (!getCart().length) {
+                    showCartMessage("Your shopping bag is empty.");
+                    return;
+                }
 
-      renderCart();
-
-    }
-
-
-    // =========================
-    // BESPOKE ENQUIRY FORM
-    // =========================
-
-    const bespokeForm =
-      document.getElementById("bespoke-form");
-
-    if (bespokeForm) {
-
-      bespokeForm.addEventListener("submit", event => {
-
-        event.preventDefault();
-
-        if (!bespokeForm.reportValidity()) return;
-
-        const getValue = id =>
-          document.getElementById(id)?.value.trim() || "";
-
-        const message = `
-MONA MATTHEWS - BESPOKE ENQUIRY
-
-Name: ${getValue("customer-name")}
-
-Phone: ${getValue("customer-phone")}
-
-Email: ${getValue("customer-email")}
-
-Interest: ${getValue("customer-interest")}
-
-Design description:
-${getValue("customer-message")}
-
-I look forward to hearing from you.
-`;
-
-        const whatsappURL =
-          "https://wa.me/" +
-          WHATSAPP_NUMBER +
-          "?text=" +
-          encodeURIComponent(message);
-
-        window.open(
-          whatsappURL,
-          "_blank",
-          "noopener"
-        );
-
-        const confirmation =
-          document.getElementById("form-message");
-
-        if (confirmation) {
-
-          confirmation.textContent =
-            "Your enquiry is ready. Please press Send in WhatsApp.";
-
+                showCartMessage(
+                    "Demonstration only: checkout is not connected. No order has been submitted and no payment has been processed."
+                );
+            });
         }
 
-      });
-
+        renderCart();
     }
 
-  });
+    // -------------------------
+    // BESPOKE ENQUIRY FORM
+    // -------------------------
+
+    function initialiseBespokeForm() {
+        const form = document.getElementById("bespoke-form");
+
+        if (!form) {
+            return;
+        }
+
+        form.addEventListener("submit", event => {
+            event.preventDefault();
+
+            if (!form.reportValidity()) {
+                return;
+            }
+
+            const confirmation =
+                document.getElementById("form-message");
+
+            if (confirmation) {
+                confirmation.textContent =
+                    "Demonstration only: this enquiry form is not connected. Your details have not been sent to Mona Matthews.";
+
+                confirmation.setAttribute("role", "status");
+                confirmation.setAttribute("aria-live", "polite");
+            }
+        });
+    }
+
+    // -------------------------
+    // APPLICATION INITIALISATION
+    // -------------------------
+
+    document.addEventListener("DOMContentLoaded", () => {
+        updateCartCount();
+        initialiseFilters();
+        initialiseAddToBag();
+        initialiseCart();
+        initialiseBespokeForm();
+    });
+
+    // Keep bag counts in sync across browser tabs.
+    window.addEventListener("storage", event => {
+        if (event.key === CART_KEY) {
+            updateCartCount();
+        }
+    });
 
 })();
